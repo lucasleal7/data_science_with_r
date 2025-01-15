@@ -1,0 +1,278 @@
+---
+title: "Data Science with R"
+author: "Lucas Leal"
+date: "`r format(Sys.time(), '%d/%m/%Y')`"
+output: 
+  html_document:
+    highlight: textmate
+    logo: logo.png
+    theme: jou
+    number_sections: yes
+    toc: yes
+    toc_float:
+      collapsed: yes
+      smooth_scroll: no
+    df_print: paged
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+```
+
+# Imports
+
+```{r}
+library(dplyr)
+library(janitor)
+library(skimr)
+library(gtsummary)
+library(summarytools)
+library(kableExtra)
+library(knitr)
+library(ggplot2)
+library(grid)
+library(gridExtra)
+```
+
+# Data Collection
+
+```{r}
+library(readr)
+df <- read_csv("train.csv")
+glimpse(df)
+```
+
+# Data Cleaning
+
+```{r}
+df1<-janitor::clean_names(df)%>% 
+  rename(days_associated=vintage,
+         health_annual_paid=annual_premium) %>% 
+  mutate(
+    across(where(is.character),tolower),
+    driving_license=ifelse(driving_license==1,"yes","no"),
+    previously_insured=ifelse(previously_insured==1,"yes","no"),
+    response=ifelse(response==1,"yes","no"),
+    vehicle_age=case_when(
+      vehicle_age=="< 1 year" ~ "below_1_year",
+      vehicle_age=="1-2 year" ~ "between_1_2_years",
+      vehicle_age=="> 2 years" ~ "over_2_years"
+    )
+) %>% 
+  mutate_if(is.character,as.factor)%>% 
+  mutate(response=factor(response,levels=c('yes','no')),
+         driving_license=factor(driving_license,levels=c('yes','no')),
+         previously_insured=factor(previously_insured,levels=c('yes', 'no')),
+         vehicle_damage=factor(vehicle_damage,levels=c('yes','no'))
+         ) 
+  
+
+glimpse(df1)
+
+saveRDS(df1,'df_cleaned.rds')
+```
+
+```{r}
+df_cleaned <- readRDS('df_cleaned.rds')
+
+```
+
+## Data Types
+
+```{r}
+variable_classes<-tibble(variables=names(df1),
+       type=unlist(lapply(df1,class)) )
+
+variable_classes
+```
+
+# Column Description
+
+```{r}
+variables <- df1 %>% names()
+description<-c(
+  "Unique ID for the customer",
+  "Gender of the customer",
+  "Age of the customer",
+  "Customer has DL(yes/no)",
+  "Unique code for the region of the customer",
+  "Customer already has Vehicle Insurance(yes/no)",
+  "Age of the Vehicle",
+  "Customer got his/her vehicle damaged in the past.(yes/no)",
+  "The amount customer needs to pay as premium in the year",
+  "Anonymized Code for the channel of outreaching to the customer ie. Different Agents, Over Mail, Over Phone, In Person, etc.",
+  "Number of Days, Customer has been associated with the company",
+  "Customer is interested in car insurance(yes/no)"
+)
+
+df_description<-tibble(variables=variables,
+       description=description)
+
+kable(df_description,format="html") %>%
+  kable_styling(bootstrap_options = 'striped',full_width = FALSE)
+```
+
+# Estatistica Descritiva
+
+-   Check data
+
+```{r}
+skim(df_cleaned)
+```
+
+```{r}
+summary(df_cleaned)
+```
+
+# General Overview
+
+```{r}
+library(gtsummary)
+
+df_cleaned %>% 
+  select(-id) %>% 
+  tbl_summary(
+    type = list(response ~ 'categorical',
+                driving_license ~ 'categorical',
+                previously_insured ~ 'categorical',
+                vehicle_damage ~ 'categorical'),
+    digits = list(all_categorical() ~ c(0,2))
+  )
+```
+
+# Mais detalhes estatisticos
+
+```{r}
+num_atributos<-df_cleaned %>%
+  select(age,health_annual_paid,days_associated)
+  
+```
+
+```{r}
+tab_descr<-descr(num_atributos,style = 'rmarkdown') %>% round(2)
+
+kable(data.frame(tab_descr),format="html") %>%
+  kable_styling(bootstrap_options = 'striped',full_width = FALSE)
+  
+```
+
+# Visualização
+
+-   Numérico
+
+```{r}
+options(encoding = "UTF-8")
+Sys.setlocale("LC_ALL", "pt_BR.UTF-8")
+
+
+#--------------age--------------
+age_plt<-num_atributos %>% 
+  ggplot(aes(x=age))+
+  geom_histogram(aes(y=after_stat(density)),binwidth=1,
+                 color='gray',fill='lightblue',alpha=0.5)+
+  geom_density(color='blue')+
+  labs(x='idade',y='densidade',title='idade_cliente')+
+  theme_minimal()
+
+#--------------health_annual_paid--------------
+paid_plt<-num_atributos %>% 
+  ggplot(aes(x=health_annual_paid))+
+  geom_histogram(aes(y=after_stat(density)),binwidth = 10000,
+                 color='gray',fill='lightblue',alpha=0.5)+
+  geom_density(color='blue')+
+  labs(x='saúde_anual_pago',y='densidade',title='distribuição de \nclientes')+
+  theme_minimal()
+
+#--------------days_associated--------------
+days_plt<-num_atributos %>% 
+  ggplot(aes(x=days_associated))+
+  geom_histogram(aes(y=after_stat(density)),
+                 color='gray',fill='lightblue',alpha=0.5)+
+  geom_density(color='blue')+
+  labs(x='dias_associados',y='densidade',title='distribuição de clientes \npor dia')+
+  theme_minimal()
+
+grid.arrange(age_plt,paid_plt,days_plt,ncol=3)
+```
+
+-   Categórico
+
+    ```{r}
+    num_names<-names(num_atributos)
+    atributo_cat<-df_cleaned %>% 
+      select(-id,-one_of(num_names))
+    ```
+
+```{r}
+
+#---------gender----------
+gender_plt<-atributo_cat %>% 
+  ggplot(aes(x=gender))+
+  geom_bar(aes(fill=gender),
+           show.legend = FALSE)+
+  labs(x='Genero',y='#',title='distribuição \nde genero ')+
+  theme_minimal()
+
+
+#---------driving_license----------
+permisson_plt<-atributo_cat %>% 
+  ggplot(aes(x=driving_license))+
+  geom_bar(aes(fill=driving_license),
+           show.legend = FALSE)+
+  labs(x='permissão para dirigir',y='#',title='distribuição de npermissão \npara dirigir')+
+  theme_minimal()
+
+
+#---------region_cod----------
+region_plt<-atributo_cat %>% 
+  ggplot(aes(x=region_code))+
+  geom_bar(aes(fill=factor(region_code)),
+           show.legend = FALSE)+
+  labs(x='região',y='#',title='distribuição \npor região')+
+  theme_minimal()
+
+#---------previously_insured----------
+previous_plt<-atributo_cat %>% 
+  ggplot(aes(x=previously_insured))+
+  geom_bar(aes(fill=previously_insured),
+           show.legend = FALSE)+
+  labs(x='anteriormente assegurados',y='#',title='distribuição de \nanteriormente assegurados')+
+  theme_minimal()
+
+#---------vehicle_age----------
+vehicle_plt<-atributo_cat %>% 
+  ggplot(aes(x=vehicle_age))+
+  geom_bar(aes(fill=vehicle_age),
+           show.legend = FALSE)+
+  labs(x='idade do veiculo',y='#',title='distribuição por \nidade do veiculo')+
+  theme_minimal()
+
+
+#---------vehicle_damagee----------
+damage_plt<-atributo_cat %>% 
+  ggplot(aes(x=vehicle_damage))+
+  geom_bar(aes(fill=vehicle_damage),
+           show.legend = FALSE)+
+  labs(x='dano no veiculo',y='#',title='clientes que tiveram \ndano no veiculo')+
+  theme_minimal()
+
+#---------policy_sales_channel----------
+channel_plt<-atributo_cat %>% 
+  ggplot(aes(x=policy_sales_channel))+
+  geom_bar(aes(fill=factor(policy_sales_channel)),
+           show.legend = FALSE)+
+  labs(x='canal de vendas',y='#',title='distribuição por \ncanal de vendas')+
+  theme_minimal()
+
+#---------response----------
+response_plt<-atributo_cat %>% 
+  ggplot(aes(x=response))+
+  geom_bar(aes(fill=response),
+           show.legend = FALSE)+
+  labs(x='resposta',y='#',title='distribuição por \nresposta')+
+  theme_minimal()
+
+grid.arrange(gender_plt,permisson_plt,region_plt,previous_plt,vehicle_plt,damage_plt,channel_plt,response_plt,ncol=4,nrow=2)
+```
